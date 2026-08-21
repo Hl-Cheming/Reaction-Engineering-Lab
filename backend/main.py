@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .kinetics import arrhenius_from_reference
 from .reactors import br_first_order, cstr_first_order, pfr_first_order
+from .solver import SolverInput, solve
 from .validation import require_conversion, require_positive
 
 app = FastAPI(
@@ -20,8 +21,26 @@ class FirstOrderRequest(BaseModel):
     k_ref: float
     temperature: float = 350.0
     ref_temperature: float = 350.0
-    activation_energy: float = 52_000.0
+    activation_energy: float = 0.0
     volumetric_flow: float = 0.5
+
+
+class SolverRequest(BaseModel):
+    reactor: str = Field(pattern="^(BR|CSTR|PFR|PBR)$")
+    phase: str = Field(default="liquid", pattern="^(liquid|gas)$")
+    solve_for: str = Field(default="target", pattern="^(target|size)$")
+    target_x: float = 0.8
+    size: float = 3.2
+    order: float = 1.0
+    k_ref: float = 0.25
+    temperature: float = 350.0
+    ref_temperature: float = 350.0
+    activation_energy: float = 0.0
+    ca0: float = 2.0
+    fa0: float = 1.0
+    epsilon: float = 0.0
+    pressure_drop: bool = False
+    alpha: float = 0.03
 
 
 @app.get("/api/health")
@@ -56,5 +75,14 @@ def first_order(request: FirstOrderRequest) -> dict[str, float | str]:
             "unit": result.unit,
             "k_at_temperature": k,
         }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/calculate")
+def calculate(request: SolverRequest) -> dict[str, float | str]:
+    """Solve the same V1 isothermal single-reaction scope used by the local UI."""
+    try:
+        return solve(SolverInput(**request.model_dump()))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
